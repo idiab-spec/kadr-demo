@@ -14,20 +14,32 @@ const GYRO_MAX = 45;           // smoothed phone rotation, degrees per second
 const SHARP_REL = 0.5;         // a frame must be at least half as sharp as the recent best
 const BEST_DECAY = 0.97;       // the recent best fades by 3% per analysed frame (about 2 s half-life)
 
+const REVIEW_MS = 1800;        // the review moves on by itself after this (matches the CSS animation)
+
+// SF Symbols-style icons used in lists and the review bar
+const ICON = {
+  ok: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M7.6 12.4l3 3 5.8-6.3" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 4.2a2 2 0 0 1 3.4 0l7.6 13a2 2 0 0 1-1.7 3H4.4a2 2 0 0 1-1.7-3z" fill="currentColor"/><path d="M12 9.5v4.2M12 16.6v.1" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 8.5a2 2 0 0 1 2-2h2.2l1.4-2h5.8l1.4 2h2.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+};
+
 const $ = (s) => document.querySelector(s);
 const el = {
   start: $('#screen-start'), capture: $('#screen-capture'), done: $('#screen-done'),
-  btnStart: $('#btn-start'), videoFile: $('#video-file'), startStatus: $('#start-status'), startMap: $('#start-map'),
+  btnStart: $('#btn-start'), videoFile: $('#video-file'), startStatus: $('#start-status'),
   stage: $('#stage'), video: $('#cam'), img: $('#test-img'), overlay: $('#overlay'), flash: $('#flash'),
-  shotCount: $('#shot-count'), shotName: $('#shot-name'), shotTip: $('#shot-tip'), progress: $('#progress'),
-  instruction: $('#instruction'), instructionText: $('#instruction-text'), hint: $('#hint'), hud: $('#hud'),
-  miniMap: $('#mini-map'), checks: $('#checks'), shutter: $('#btn-shutter'), ring: $('#ring'), shutterLabel: $('#shutter-label'),
+  shotCount: $('#shot-count'), shotName: $('#shot-name'), shotTip: $('#shot-tip'),
+  instruction: $('#instruction'), instructionText: $('#instruction-text'), hint: $('#hint'),
+  aiPanel: $('#ai-panel'), checks: $('#checks'), hud: $('#hud'),
+  miniMap: $('#mini-map'), shutter: $('#btn-shutter'), ring: $('#ring'),
+  thumbBtn: $('#btn-thumb'), lastThumb: $('#last-thumb'),
   btnAnyway: $('#btn-anyway'), btnSkip: $('#btn-skip'), btnAi: $('#btn-aiview'), btnTorch: $('#btn-torch'),
   btnClose: $('#btn-close'), btnVoice: $('#btn-voice'), btnShots: $('#btn-shotlist'),
-  review: $('#review'), reviewImg: $('#review-img'), reviewStatus: $('#review-status'), reviewScore: $('#review-score'),
-  reviewChecks: $('#review-checks'), btnRetake: $('#btn-retake'), btnNext: $('#btn-next'),
+  review: $('#review'), reviewImg: $('#review-img'), reviewTitle: $('#review-title'), reviewMeta: $('#review-meta'),
+  reviewCount: $('#review-count'), btnRetake: $('#btn-retake'), btnNext: $('#btn-next'),
   sheet: $('#shot-sheet'), sheetList: $('#sheet-list'), btnSheetClose: $('#btn-sheet-close'),
-  doneTitle: $('#done-title'), doneSub: $('#done-sub'), gallery: $('#gallery'), reportBody: $('#report-body'),
+  doneIcon: $('#done-icon'), doneTitle: $('#done-title'), doneSub: $('#done-sub'), reportList: $('#report-list'),
   btnSend: $('#btn-send'), btnAgain: $('#btn-again'), toast: $('#toast'),
 };
 const octx = el.overlay.getContext('2d');
@@ -82,12 +94,7 @@ function applyLang() {
   document.documentElement.dir = s.dir;
   document.querySelectorAll('[data-i18n]').forEach((n) => { n.textContent = s[n.dataset.i18n]; });
   document.querySelectorAll('[data-i18n-label]').forEach((n) => { n.setAttribute('aria-label', s[n.dataset.i18nLabel]); });
-  document.querySelectorAll('.js-lang').forEach((b) => {
-    b.textContent = b.classList.contains('lang-mini') ? (state.lang === 'ar' ? 'EN' : 'ع') : s.switchTo;
-  });
-  el.shutterLabel.textContent = s.auto;
-  el.startMap.setAttribute('aria-label', s.mapCaption);
-  renderMap(el.startMap, { numbered: true });
+  document.querySelectorAll('.js-lang').forEach((b) => { b.textContent = s.switchTo; });
   if (!el.capture.hidden) { renderShotHeader(); live.checksSig = ''; showInstruction(live.shownInstr || 'search', true); }
   if (!el.done.hidden) renderDone();
   if (!el.sheet.hidden) renderSheet();
@@ -102,9 +109,8 @@ function toggleLang() {
 
 // ---------------------------------------------------------------- top-view map
 
-function renderMap(svg, { numbered = false, current = -1 } = {}) {
+function renderMap(svg, { current = -1 } = {}) {
   const p = [];
-  p.push('<rect class="bay" x="3" y="3" width="154" height="194" rx="6"/>');
   p.push('<g>');
   p.push('<rect class="body" x="56" y="50" width="48" height="100" rx="15"/>');
   p.push('<path class="glass" d="M61 84 Q80 75 99 84"/>');
@@ -113,7 +119,6 @@ function renderMap(svg, { numbered = false, current = -1 } = {}) {
   p.push('<rect class="lamp" x="61" y="52" width="10" height="4" rx="2"/><rect class="lamp" x="89" y="52" width="10" height="4" rx="2"/>');
   p.push('<rect class="tail" x="61" y="144" width="10" height="3.5" rx="1.75"/><rect class="tail" x="89" y="144" width="10" height="3.5" rx="1.75"/>');
   p.push('</g>');
-  p.push(`<text class="label" x="80" y="40" text-anchor="middle">${escapeHtml(t('mapFront'))}</text>`);
 
   SHOTS.forEach((s, i) => {
     const [x, y] = s.spot;
@@ -121,15 +126,10 @@ function renderMap(svg, { numbered = false, current = -1 } = {}) {
     const cur = i === current;
     if (cur) {
       p.push(`<line class="aim" x1="${x}" y1="${y}" x2="${s.aim[0]}" y2="${s.aim[1]}"/>`);
-      p.push(`<circle class="pulse" cx="${x}" cy="${y}" r="5"/>`);
+      p.push(`<circle class="pulse" cx="${x}" cy="${y}" r="9"/>`);
     }
-    const r = numbered ? 7 : cur ? 6 : 4.5;
-    p.push(`<circle class="spot${done ? ' done' : ''}${cur ? ' cur' : ''}" cx="${x}" cy="${y}" r="${r}"/>`);
-    if (numbered) {
-      p.push(`<text class="n${done ? ' on-done' : ''}${cur ? ' on-cur' : ''}" x="${x}" y="${y + 0.3}">${i + 1}</text>`);
-    } else if (done && !cur) {
-      p.push(`<path class="tick" d="M${x - 2} ${y} l1.5 1.6 l2.8 -3"/>`);
-    }
+    p.push(`<circle class="spot${done ? ' done' : ''}${cur ? ' cur' : ''}" cx="${x}" cy="${y}" r="${cur ? 10 : 7}"/>`);
+    if (done && !cur) p.push(`<path class="tick" d="M${x - 3.5} ${y} l2.4 2.6 l4.6 -5"/>`);
   });
   svg.innerHTML = p.join('');
 }
@@ -367,12 +367,14 @@ function goTo(i) {
 
 function renderShotHeader() {
   const s = SHOTS[state.idx];
-  el.shotCount.textContent = `${String(state.idx + 1).padStart(2, '0')} / ${SHOTS.length}`;
   el.shotName.textContent = s.name[state.lang];
+  el.shotCount.textContent = STR[state.lang].counter(state.idx + 1, SHOTS.length);
   el.shotTip.textContent = s.tip[state.lang];
-  el.progress.innerHTML = SHOTS.map((x, j) =>
-    `<i class="${j === state.idx ? 'cur' : state.captures[x.id] ? 'done' : ''}"></i>`).join('');
   renderMap(el.miniMap, { current: state.idx });
+  // Latest photo in the corner, like the iPhone Camera
+  const last = Object.values(state.captures).sort((a, b) => b.at - a.at)[0];
+  el.lastThumb.hidden = !last;
+  if (last) el.lastThumb.src = last.url;
 }
 
 function currentSource() {
@@ -402,7 +404,8 @@ function loop(now) {
   const box = pickBox(dets, now);
   const m = measure(src.el, src.vw, src.vh, box);
   live.m = m;
-  live.motionEma += (m.motion - live.motionEma) * 0.35;
+  // An identical frame (the camera hasn't delivered a new one yet) says nothing about movement.
+  if (m.motion > 0) live.motionEma += (m.motion - live.motionEma) * 0.35;
   // Sharpness is measured on the car when there is one, else the centre: start afresh when that switches.
   const roi = box ? 'car' : 'centre';
   if (roi !== live.roi) { live.roi = roi; live.bestLap = m.lapVar; }
@@ -588,7 +591,7 @@ function updateLive(ev, now, dt, shot) {
   if (now - live.shotStart > ANYWAY_AFTER_MS) el.btnAnyway.hidden = false;
 
   // What the AI sees (for the pitch)
-  el.hud.hidden = !state.aiView;
+  el.aiPanel.hidden = !state.aiView;
   if (state.aiView) {
     const m = live.m;
     const best = Math.max(1, live.bestLap);
@@ -611,8 +614,8 @@ function showInstruction(key, force = false) {
 
 // ---------------------------------------------------------------- overlay drawing
 
-function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-const C = { focus: cssVar('--focus'), ok: cssVar('--ok'), bad: cssVar('--bad') };
+// Camera colours (the camera screen is always dark): yellow while tracking, green when right.
+const C = { track: '#FFD60A', ok: '#30D158', off: 'rgba(255,255,255,0.75)', guide: 'rgba(255,255,255,0.4)' };
 
 function drawOverlay(ev, src, shot) {
   const W = el.stage.clientWidth, H = el.stage.clientHeight;
@@ -629,8 +632,7 @@ function drawOverlay(ev, src, shot) {
   // Target guide for this shot
   octx.save();
   octx.lineWidth = 1.5;
-  octx.setLineDash([7, 7]);
-  octx.strokeStyle = ev.ok ? C.ok : 'rgba(255,255,255,0.5)';
+  octx.strokeStyle = ev.ok ? C.ok : C.guide;
   if (shot.kind === 'exterior') {
     const aspect = VIEW_ASPECT[shot.view];
     let gw = dw * 0.84, gh = gw / aspect;
@@ -651,7 +653,7 @@ function drawOverlay(ev, src, shot) {
   // Every detection, with its confidence (AI view)
   if (state.aiView) {
     octx.save();
-    octx.font = '500 12px "IBM Plex Mono", ui-monospace, monospace';
+    octx.font = '500 12px ui-monospace, "SF Mono", Menlo, monospace';
     octx.direction = 'ltr';
     octx.textAlign = 'left';
     for (const d of live.dets) {
@@ -661,7 +663,7 @@ function drawOverlay(ev, src, shot) {
       octx.strokeRect(x, y, d.w * dw, d.h * dh);
       const label = `car ${Math.round(d.score * 100)}%`; // the model's car, truck and bus all count as a car here
       const tw = octx.measureText(label).width + 10;
-      octx.fillStyle = 'rgba(10,14,19,0.8)';
+      octx.fillStyle = 'rgba(28,28,30,0.8)';
       octx.fillRect(x, Math.max(0, y - 18), tw, 18);
       octx.fillStyle = '#fff';
       octx.fillText(label, x + 5, Math.max(13, y - 5));
@@ -672,9 +674,9 @@ function drawOverlay(ev, src, shot) {
   // The car the guide is tracking
   if (ev.box && (shot.kind === 'exterior' || state.aiView)) {
     const b = ev.box;
-    let color = C.focus;
+    let color = C.track;
     if (ev.ok) color = C.ok;
-    else if (shot.kind === 'exterior' && (ev.chips.car === 'bad' || ev.chips.frame === 'bad')) color = C.bad;
+    else if (shot.kind === 'exterior' && (ev.chips.car === 'bad' || ev.chips.frame === 'bad')) color = C.off;
     brackets(ox + b.x * dw, oy + b.y * dh, b.w * dw, b.h * dh, color);
   }
 }
@@ -693,7 +695,7 @@ function brackets(x, y, w, h, color) {
   const L = Math.max(12, Math.min(42, Math.min(w, h) * 0.2));
   octx.save();
   octx.strokeStyle = color;
-  octx.lineWidth = 3.5;
+  octx.lineWidth = 3;
   octx.lineCap = 'round';
   octx.lineJoin = 'round';
   octx.beginPath();
@@ -762,24 +764,22 @@ function scoreOf(shot, ev, m) {
 }
 
 function showReview(shot) {
+  const s = STR[state.lang];
   const cap = state.captures[shot.id];
   el.reviewImg.src = cap.url;
-  el.reviewStatus.textContent = cap.verified ? t('accepted') : t('savedUnchecked');
-  el.reviewStatus.classList.toggle('warn', !cap.verified);
-  el.reviewScore.textContent = cap.score ?? '–';
-  const order = CHECKS_FOR[shot.kind];
-  el.reviewChecks.innerHTML = order.map((c) =>
-    `<li class="${cap.verified ? cap.chips[c] || 'na' : 'na'}">${escapeHtml(STR[state.lang].chips[c])}</li>`).join('');
+  el.reviewTitle.innerHTML = `${cap.verified ? ICON.ok : ICON.warn}<span>${escapeHtml(cap.verified ? s.looksGood : s.savedUnchecked)}</span>`;
+  el.reviewTitle.classList.toggle('warn', !cap.verified);
+  el.reviewMeta.textContent = cap.verified ? `${shot.name[state.lang]} · ${s.quality} ${cap.score}` : shot.name[state.lang];
   const last = nextIndex() === -1 || state.returnToDone;
-  el.btnNext.textContent = last ? t('finish') : t('next');
+  el.btnNext.textContent = last ? s.finish : s.usePhoto;
   el.review.hidden = false;
 
   clearTimeout(reviewTimer);
-  el.btnNext.classList.remove('counting');
+  el.reviewCount.classList.remove('counting');
   if (cap.verified) {
-    void el.btnNext.offsetWidth;
-    el.btnNext.classList.add('counting');
-    reviewTimer = setTimeout(advance, 1800);
+    void el.reviewCount.offsetWidth;
+    el.reviewCount.classList.add('counting');
+    reviewTimer = setTimeout(advance, REVIEW_MS);
   }
   live.capturing = false;
 }
@@ -792,7 +792,7 @@ function nextIndex() {
 
 function advance() {
   clearTimeout(reviewTimer);
-  el.btnNext.classList.remove('counting');
+  el.reviewCount.classList.remove('counting');
   el.review.hidden = true;
   const n = nextIndex();
   if (state.returnToDone || n === -1) { state.returnToDone = false; showDone(); return; }
@@ -804,7 +804,7 @@ function advance() {
 el.btnNext.addEventListener('click', advance);
 el.btnRetake.addEventListener('click', () => {
   clearTimeout(reviewTimer);
-  el.btnNext.classList.remove('counting');
+  el.reviewCount.classList.remove('counting');
   el.review.hidden = true;
   if (state.sourceKind === 'file') el.video.play().catch(() => {});
   state.paused = false;
@@ -830,7 +830,7 @@ el.btnSkip.addEventListener('click', () => {
 el.btnAi.addEventListener('click', () => {
   state.aiView = !state.aiView;
   el.btnAi.setAttribute('aria-pressed', String(state.aiView));
-  el.hud.hidden = !state.aiView;
+  el.aiPanel.hidden = !state.aiView;
 });
 el.btnVoice.addEventListener('click', () => {
   state.voice = !state.voice;
@@ -851,8 +851,10 @@ el.btnClose.addEventListener('click', () => {
   else exitToStart();
 });
 
-// Shot list
-el.btnShots.addEventListener('click', () => { renderSheet(); el.sheet.hidden = false; state.paused = true; });
+// All-photos sheet (from the title or the last-photo thumbnail)
+const openSheet = () => { renderSheet(); el.sheet.hidden = false; state.paused = true; };
+el.btnShots.addEventListener('click', openSheet);
+el.thumbBtn.addEventListener('click', openSheet);
 el.btnSheetClose.addEventListener('click', closeSheet);
 el.sheet.addEventListener('click', (e) => { if (e.target === el.sheet) closeSheet(); });
 function closeSheet() { el.sheet.hidden = true; if (el.review.hidden) state.paused = false; }
@@ -860,8 +862,8 @@ function renderSheet() {
   el.sheetList.innerHTML = SHOTS.map((s, i) => {
     const done = !!state.captures[s.id];
     const cur = i === state.idx;
-    const st = cur ? `<span class="st cur">${t('current')}</span>` : done ? `<span class="st done">${t('done')}</span>` : `<span class="st">${t('pending')}</span>`;
-    return `<li><button type="button" data-i="${i}"><span class="n">${String(i + 1).padStart(2, '0')}</span><span>${escapeHtml(s.name[state.lang])}</span>${st}</button></li>`;
+    const st = cur ? `<span class="st">${escapeHtml(t('current'))}</span>` : done ? `<span class="st">${ICON.ok}</span>` : '';
+    return `<li><button type="button" data-i="${i}"><span class="n">${i + 1}</span><span class="nm">${escapeHtml(s.name[state.lang])}</span>${st}</button></li>`;
   }).join('');
 }
 el.sheetList.addEventListener('click', (e) => {
@@ -880,7 +882,6 @@ function exitToStart() {
   el.capture.hidden = true;
   el.done.hidden = true;
   el.start.hidden = false;
-  renderMap(el.startMap, { numbered: true });
 }
 
 // ---------------------------------------------------------------- done screen
@@ -904,28 +905,29 @@ function renderDone() {
   const caps = SHOTS.map((x) => state.captures[x.id]).filter(Boolean);
   const n = caps.length;
   const passed = caps.filter((c) => c.verified).length;
-  el.doneTitle.textContent = n === SHOTS.length ? s.doneTitleAll(n) : s.doneTitleSome(n, SHOTS.length);
+  const complete = n === SHOTS.length;
+  el.doneIcon.innerHTML = complete ? ICON.ok : ICON.camera;
+  el.doneIcon.classList.toggle('partial', !complete);
+  el.doneTitle.textContent = complete ? s.doneTitleAll : s.doneTitleSome(n, SHOTS.length);
   const lastAt = caps.reduce((a, c) => Math.max(a, c.at.getTime()), state.startedAt || Date.now());
   const secs = Math.max(0, Math.round((lastAt - (state.startedAt || lastAt)) / 1000));
   el.doneSub.textContent = s.doneSub(s.duration(Math.floor(secs / 60), secs % 60), passed);
 
-  el.gallery.innerHTML = SHOTS.map((x, i) => {
-    const c = state.captures[x.id];
-    const pic = c ? `<img class="thumb" src="${c.url}" alt="">` : `<span class="empty">${escapeHtml(s.missing)}</span>`;
-    const badge = c ? (c.verified ? `<span class="badge ok">${c.score}</span>` : `<span class="badge warn">!</span>`) : '';
-    return `<li><button type="button" data-i="${i}">${pic}<span class="cap"><span class="n">${String(i + 1).padStart(2, '0')}</span><span class="nm">${escapeHtml(x.name[state.lang])}</span>${badge}</span></button></li>`;
-  }).join('');
-
   const timeFmt = new Intl.DateTimeFormat(s.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  el.reportBody.innerHTML = SHOTS.map((x, i) => {
+  el.reportList.innerHTML = SHOTS.map((x, i) => {
     const c = state.captures[x.id];
-    if (!c) return `<tr><td class="num">${i + 1}</td><td>${escapeHtml(x.name[state.lang])}</td><td class="num">–</td><td><span class="miss">${escapeHtml(s.missing)}</span></td><td class="num">–</td></tr>`;
-    const checks = c.verified ? `<span class="ok">${escapeHtml(s.allPassed)}</span>` : `<span class="warn">${escapeHtml(s.notChecked)}</span>`;
-    return `<tr><td class="num">${i + 1}</td><td>${escapeHtml(x.name[state.lang])}</td><td class="num">${timeFmt.format(c.at)}</td><td>${checks}</td><td class="num">${c.score ?? '–'}</td></tr>`;
+    const thumb = c ? `<img class="row-thumb" src="${c.url}" alt="">` : `<span class="row-thumb">${ICON.camera}</span>`;
+    const sub = c ? `${timeFmt.format(c.at)} · ${c.verified ? s.allPassed : s.notChecked}` : s.missing;
+    const end = !c
+      ? `<span class="i chev">${ICON.chevron}</span>`
+      : c.verified
+        ? `<span>${c.score}</span><span class="i ok">${ICON.ok}</span>`
+        : `<span class="i warn">${ICON.warn}</span>`;
+    return `<li><button class="row" type="button" data-i="${i}">${thumb}<span class="row-text"><span class="row-title">${escapeHtml(x.name[state.lang])}</span><span class="row-sub">${escapeHtml(sub)}</span></span><span class="row-end">${end}</span></button></li>`;
   }).join('');
 }
 
-el.gallery.addEventListener('click', async (e) => {
+el.reportList.addEventListener('click', async (e) => {
   const b = e.target.closest('button[data-i]');
   if (!b) return;
   try { await resumeSource(); } catch { exitToStart(); return; }
