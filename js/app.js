@@ -630,6 +630,8 @@ function drawOverlay(ev, src, shot) {
   if (state.aiView) {
     octx.save();
     octx.font = '500 12px "IBM Plex Mono", ui-monospace, monospace';
+    octx.direction = 'ltr';
+    octx.textAlign = 'left';
     for (const d of live.dets) {
       const x = ox + d.x * dw, y = oy + d.y * dh;
       octx.strokeStyle = 'rgba(255,255,255,0.6)';

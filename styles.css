@@ -147,7 +147,7 @@ h1, h2 { text-wrap: balance; }
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: start;
   background: none; border: 0; padding: 0 4px; cursor: pointer;
 }
-.shot-count { font: 500 11px/1.4 var(--font-hud); color: var(--focus); letter-spacing: 0.12em; }
+.shot-count { font: 500 11px/1.4 var(--font-hud); color: var(--focus); letter-spacing: 0.12em; direction: ltr; align-self: flex-start; }
 .shot-name { font-weight: 600; font-size: 19px; line-height: 1.2; }
 .shot-tip { font-size: 13px; line-height: 1.35; color: rgba(234, 240, 246, 0.8); }
 .progress { display: flex; gap: 3px; margin-top: 8px; max-width: 420px; }
