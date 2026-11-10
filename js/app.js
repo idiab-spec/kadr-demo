@@ -1,12 +1,18 @@
-import { SHOTS, SHARP_MIN, VIEW_ASPECT, CHECKS_FOR } from './shots.js';
+import { SHOTS, SHARP_FLOOR, VIEW_ASPECT, CHECKS_FOR } from './shots.js';
 import { STR } from './i18n.js';
 import { loadDetector, detect, measure, resetMotion } from './vision.js';
 
 const HOLD_MS = 1000;          // how long a shot must stay right before the photo is taken
 const TICK_MS = 90;            // analyse about 11 frames a second
-const ANYWAY_AFTER_MS = 20000; // offer "Take anyway" after 20 s on one shot
+const ANYWAY_AFTER_MS = 12000; // offer "Take anyway" after 12 s on one shot
 const RING = 226.2;            // circumference of the shutter ring (r = 36)
-const MOTION_MAX = 9;          // average pixel change between frames above which we say "hold still"
+
+// Steady: a hand-held phone always trembles a little; only real movement (walking, swinging) counts.
+const MOTION_MAX = 22;         // smoothed average pixel change between analysed frames
+const GYRO_MAX = 45;           // smoothed phone rotation, degrees per second
+// Sharp: judged against the sharpest frame of the last few seconds, so it adapts to each phone and scene.
+const SHARP_REL = 0.5;         // a frame must be at least half as sharp as the recent best
+const BEST_DECAY = 0.97;       // the recent best fades by 3% per analysed frame (about 2 s half-life)
 
 const $ = (s) => document.querySelector(s);
 const el = {
@@ -49,11 +55,12 @@ function resetLive() {
     pendingInstr: null, pendingSince: 0, shownInstr: null,
     lastSpokeAt: 0, lastSpokenKey: null, capturing: false,
     frames: 0, fpsAt: performance.now(), fps: 0, checksSig: '',
+    motionEma: 0, bestLap: 0,
   };
 }
 
 const t = (k) => STR[state.lang][k];
-const sensors = { available: false, tilt: 0, roll: 0, physLandscape: null };
+const sensors = { available: false, tilt: 0, roll: 0, rot: 0, rotAvailable: false, physLandscape: null };
 let audioCtx = null;
 let wakeLock = null;
 let reviewTimer = null;
@@ -258,6 +265,12 @@ function onMotion(e) {
   sensors.roll += (roll - sensors.roll) * 0.3;
   if (Math.abs(a.x) > Math.abs(a.y) * 1.3) sensors.physLandscape = true;
   else if (Math.abs(a.y) > Math.abs(a.x) * 1.3) sensors.physLandscape = false;
+  // rotation speed (gyroscope), degrees per second
+  const r = e.rotationRate;
+  if (r && r.alpha != null && r.beta != null && r.gamma != null) {
+    sensors.rotAvailable = true;
+    sensors.rot += (Math.hypot(r.alpha, r.beta, r.gamma) - sensors.rot) * 0.25;
+  }
 }
 
 function unlockAudio() {
@@ -389,6 +402,11 @@ function loop(now) {
   const box = pickBox(dets, now);
   const m = measure(src.el, src.vw, src.vh, box);
   live.m = m;
+  live.motionEma += (m.motion - live.motionEma) * 0.35;
+  // Sharpness is measured on the car when there is one, else the centre: start afresh when that switches.
+  const roi = box ? 'car' : 'centre';
+  if (roi !== live.roi) { live.roi = roi; live.bestLap = m.lapVar; }
+  live.bestLap = Math.max(m.lapVar, live.bestLap * BEST_DECAY);
 
   live.frames++;
   if (now - live.fpsAt > 1000) { live.fps = live.frames; live.frames = 0; live.fpsAt = now; }
@@ -522,10 +540,13 @@ function evaluate(shot, box, m, src) {
   }
 
   // 6. Steady and sharp
-  const moving = state.sourceKind !== 'image' && m.motion > MOTION_MAX;
-  const blurry = m.lapVar < SHARP_MIN[k];
-  chips.sharp = moving || blurry ? 'bad' : 'ok';
-  if (moving) fail('still');
+  const isLive = state.sourceKind !== 'image';
+  const gyroMoving = useSensors && sensors.rotAvailable && sensors.rot > GYRO_MAX;
+  const moving = isLive && (gyroMoving || live.motionEma > MOTION_MAX);
+  const softerThanRecent = isLive && m.lapVar < live.bestLap * SHARP_REL; // e.g. a shake blurred this frame
+  const blurry = m.lapVar < SHARP_FLOOR[k];                                // very soft: dirty lens, no focus
+  chips.sharp = moving || softerThanRecent || blurry ? 'bad' : 'ok';
+  if (moving || softerThanRecent) fail('still');
   else if (blurry) fail('blurry');
 
   const hint = k === 'exterior' && box && m.clip > 0.06 ? 'glareHint' : null;
@@ -559,7 +580,7 @@ function updateLive(ev, now, dt, shot) {
   if (hintText) el.hint.textContent = hintText;
 
   // Auto-capture: stay right for a moment and the photo takes itself
-  live.hold = ev.ok ? live.hold + dt : Math.max(0, live.hold - dt * 3);
+  live.hold = ev.ok ? live.hold + dt : Math.max(0, live.hold - dt * 1.5);
   el.ring.style.strokeDashoffset = String(RING * (1 - Math.min(1, live.hold / HOLD_MS)));
   el.shutter.classList.toggle('ready', ev.ok);
   if (live.hold >= HOLD_MS) capture(true);
@@ -570,11 +591,12 @@ function updateLive(ev, now, dt, shot) {
   el.hud.hidden = !state.aiView;
   if (state.aiView) {
     const m = live.m;
+    const best = Math.max(1, live.bestLap);
     const lines = [
-      `LIGHT  ${fmt(m.mean, 0).padStart(5)}   SHARP ${fmt(m.lapVar, 0).padStart(6)}`,
-      `MOVE   ${fmt(m.motion, 1).padStart(5)}   GLARE ${(fmt(m.clip * 100, 1) + '%').padStart(6)}`,
-      `RATIO  ${ev.box ? fmt(ev.ratio, 2).padStart(5) : '    –'}   FILL  ${ev.box ? (fmt(ev.fill * 100, 0) + '%').padStart(6) : '     –'}`,
-      `TILT   ${sensors.available ? (fmt(sensors.roll, 1) + '°').padStart(5) : '    –'}   ${String(live.fps).padStart(2)} FPS`,
+      `LIGHT ${fmt(m.mean, 0).padStart(5)}    SHARP ${fmt(m.lapVar, 0).padStart(5)} ${(fmt((m.lapVar / best) * 100, 0) + '%').padStart(4)}`,
+      `MOVE  ${fmt(live.motionEma, 1).padStart(5)}/${MOTION_MAX}  GYRO ${sensors.rotAvailable ? fmt(sensors.rot, 0).padStart(4) + '/' + GYRO_MAX : '   –'}`,
+      `RATIO ${ev.box ? fmt(ev.ratio, 2).padStart(5) : '    –'}    FILL ${ev.box ? (fmt(ev.fill * 100, 0) + '%').padStart(5) : '    –'}`,
+      `TILT  ${sensors.available ? (fmt(sensors.roll, 1) + '°').padStart(5) : '    –'}    GLARE ${(fmt(m.clip * 100, 1) + '%').padStart(4)}  ${live.fps} FPS`,
     ];
     el.hud.textContent = lines.join('\n');
   }
@@ -726,8 +748,10 @@ function scoreOf(shot, ev, m) {
   let s = 100;
   if (m.mean < 85) s -= Math.min(15, (85 - m.mean) * 0.4);
   else if (m.mean > 190) s -= Math.min(15, (m.mean - 190) * 0.5);
-  const r = m.lapVar / SHARP_MIN[shot.kind];
-  if (r < 4) s -= Math.min(20, (4 - r) * 6);
+  const rel = Math.min(1, m.lapVar / Math.max(1, live.bestLap));
+  s -= Math.min(12, (1 - rel) * 24);
+  const abs = m.lapVar / SHARP_FLOOR[shot.kind];
+  if (abs < 4) s -= Math.min(10, (4 - abs) * 3);
   s -= Math.min(10, m.clip * 100);
   if (ev.box && shot.kind === 'exterior') {
     const cx = Math.abs(ev.box.x + ev.box.w / 2 - 0.5), cy = Math.abs(ev.box.y + ev.box.h / 2 - 0.5);

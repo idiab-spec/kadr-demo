@@ -80,9 +80,10 @@ export const SHOTS = [
   },
 ];
 
-// Minimum sharpness (variance of the Laplacian on a 320px-wide copy of the frame) per kind of shot.
-// Measured on test photos: sharp 800–7500, a 4px blur at 1280px ≈ 170, an 8px blur ≈ 20.
-export const SHARP_MIN = { exterior: 60, wheel: 60, interior: 35, detail: 90 };
+// Lowest acceptable sharpness (variance of the Laplacian on a 320px-wide copy of the frame) per kind of shot.
+// Only very soft frames fail this; everyday sharpness is judged against the recent best frame instead.
+// Measured on test photos: sharp 800–7500, a 4px blur at 1280px ≈ 170, an 8px blur ≈ 20, a 14px blur ≈ 5.
+export const SHARP_FLOOR = { exterior: 12, wheel: 12, interior: 8, detail: 20 };
 
 // Rough width-to-height ratio of the car on screen for each view, used to draw the target frame.
 export const VIEW_ASPECT = { head: 1.45, angle: 2.5, side: 2.95 };
