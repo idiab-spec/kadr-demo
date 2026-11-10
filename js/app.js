@@ -467,14 +467,19 @@ function evaluate(shot, box, m, src) {
       chips.frame = 'bad';
       fail('noCar');
     } else {
+      // The car's on-screen shape only separates clear cases: head-on (narrow) vs side-on (wide).
+      // Corners sit in between and overlap both, so for corners we only catch the extremes.
       let viewOk = true;
       if (!cut.L && !cut.R) {
-        if (shot.view === 'head' && ratio > 2.05) {
+        if (shot.view === 'head' && ratio > 2.3) {
           viewOk = false;
           fail(shot.end === 'rear' ? 'goRear' : 'goFront');
-        } else if (shot.view !== 'head' && ratio < 1.6) {
+        } else if (shot.view === 'side' && ratio < 1.9) {
           viewOk = false;
-          fail(shot.view === 'side' ? 'goSide' : shot.end === 'rear' ? 'goCornerRear' : 'goCornerFront');
+          fail('goSide');
+        } else if (shot.view === 'angle' && (ratio < 1.3 || ratio > 3.0)) {
+          viewOk = false;
+          fail(shot.end === 'rear' ? 'goCornerRear' : 'goCornerFront');
         }
       }
       chips.car = viewOk ? 'ok' : 'bad';
@@ -482,7 +487,7 @@ function evaluate(shot, box, m, src) {
       // 4. Whole car in the frame, centred, not too far
       let frameOk = true;
       const cx = box.x + box.w / 2 - 0.5, cy = box.y + box.h / 2 - 0.5;
-      if ((cut.L && cut.R) || (cut.T && cut.B)) { frameOk = false; fail('stepBack'); }
+      if ((cut.L && cut.R) || (cut.T && cut.B) || (cut.any && fill > 0.9)) { frameOk = false; fail('stepBack'); }
       else if (cut.L) { frameOk = false; fail('aimLeft'); }
       else if (cut.R) { frameOk = false; fail('aimRight'); }
       else if (cut.T) { frameOk = false; fail('aimUp'); }
@@ -503,11 +508,15 @@ function evaluate(shot, box, m, src) {
       chips.level = 'na';
     }
   } else if (k === 'wheel' || k === 'detail') {
-    const closeOk = !(box && wholeCar);
+    // Close up, the car runs off both sides (or top and bottom) of the frame, or isn't recognised at all.
+    // A whole car that is big enough to be this car means the person is still standing back.
+    const spans = box && ((cut.L && cut.R) || (cut.T && cut.B) || box.w * box.h > 0.8);
+    const closeOk = !box || spans || box.w < 0.3;
     chips.close = closeOk ? 'ok' : 'bad';
     if (!closeOk) fail(k === 'wheel' ? 'closeWheel' : 'closeVin');
   } else if (k === 'interior') {
-    const insideOk = !(box && wholeCar && fill < 0.75);
+    // Only a large, whole car means "you're outside"; small cars seen through the windscreen don't count.
+    const insideOk = !(box && wholeCar && box.w > 0.45);
     chips.inside = insideOk ? 'ok' : 'bad';
     if (!insideOk) fail('goInside');
   }
@@ -626,7 +635,7 @@ function drawOverlay(ev, src, shot) {
       octx.strokeStyle = 'rgba(255,255,255,0.6)';
       octx.lineWidth = 1;
       octx.strokeRect(x, y, d.w * dw, d.h * dh);
-      const label = `${d.label} ${Math.round(d.score * 100)}%`;
+      const label = `car ${Math.round(d.score * 100)}%`; // the model's car, truck and bus all count as a car here
       const tw = octx.measureText(label).width + 10;
       octx.fillStyle = 'rgba(10,14,19,0.8)';
       octx.fillRect(x, Math.max(0, y - 18), tw, 18);
