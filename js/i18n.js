@@ -34,7 +34,7 @@ export const STR = {
     torch: 'Light',
     current: 'Now',
 
-    chips: { car: 'Car', frame: 'Frame', light: 'Light', level: 'Level', sharp: 'Sharp', close: 'Close-up', inside: 'Inside' },
+    chips: { spot: 'Spot', car: 'Car', frame: 'Frame', light: 'Light', level: 'Level', sharp: 'Sharp', close: 'Close-up', inside: 'Inside' },
 
     instr: {
       search: 'Looking…',
@@ -121,7 +121,7 @@ export const STR = {
     torch: 'الضوء',
     current: 'الآن',
 
-    chips: { car: 'السيارة', frame: 'الكادر', light: 'الإضاءة', level: 'الاستقامة', sharp: 'الوضوح', close: 'عن قرب', inside: 'من الداخل' },
+    chips: { spot: 'المكان', car: 'السيارة', frame: 'الكادر', light: 'الإضاءة', level: 'الاستقامة', sharp: 'الوضوح', close: 'عن قرب', inside: 'من الداخل' },
 
     instr: {
       search: 'جارٍ البحث…',

@@ -72,7 +72,10 @@ function resetLive() {
 }
 
 const t = (k) => STR[state.lang][k];
-const sensors = { available: false, tilt: 0, roll: 0, rot: 0, rotAvailable: false, physLandscape: null };
+const sensors = {
+  available: false, tilt: 0, roll: 0, rot: 0, rotAvailable: false, physLandscape: null,
+  heading: 0, hx: 0, hy: 1, headingAvailable: false, // which way the camera faces (gyroscope, relative)
+};
 let audioCtx = null;
 let wakeLock = null;
 let reviewTimer = null;
@@ -131,7 +134,20 @@ function renderMap(svg, { current = -1 } = {}) {
     p.push(`<circle class="spot${done ? ' done' : ''}${cur ? ' cur' : ''}" cx="${x}" cy="${y}" r="${cur ? 10 : 7}"/>`);
     if (done && !cur) p.push(`<path class="tick" d="M${x - 3.5} ${y} l2.4 2.6 l4.6 -5"/>`);
   });
+  // "You are here" (from the phone's turn), positioned live by updateYouDot()
+  p.push('<g class="you" style="display:none"><circle class="you-halo" r="13"/><circle class="you-core" r="7"/></g>');
   svg.innerHTML = p.join('');
+}
+
+function updateYouDot(shot) {
+  const g = el.miniMap.querySelector('.you');
+  if (!g) return;
+  const outside = shot.kind === 'exterior' || shot.kind === 'wheel';
+  const ref = outside && state.sourceKind !== 'file' && sensors.headingAvailable ? carRef() : null;
+  if (ref == null) { g.style.display = 'none'; return; }
+  const phi = (angDiff(sensors.heading, ref) * Math.PI) / 180; // 0 = in front, −90° = driver side
+  g.setAttribute('transform', `translate(${(80 + 66 * Math.sin(phi)).toFixed(1)} ${(100 - 86 * Math.cos(phi)).toFixed(1)})`);
+  g.style.display = '';
 }
 
 // ---------------------------------------------------------------- start
@@ -240,13 +256,67 @@ async function resumeSource() {
 // ---------------------------------------------------------------- sensors, sound, voice
 
 function askMotionPermission() {
-  const listen = () => window.addEventListener('devicemotion', onMotion);
+  // iPhone asks once for "motion and orientation"; both calls must start inside the tap.
+  const DOE = window.DeviceOrientationEvent;
   const DME = window.DeviceMotionEvent;
-  if (DME && typeof DME.requestPermission === 'function') {
-    DME.requestPermission().then((r) => { if (r === 'granted') listen(); }).catch(() => {});
-  } else if (DME) {
-    listen();
+  if (DOE && typeof DOE.requestPermission === 'function') {
+    DOE.requestPermission().then((r) => { if (r === 'granted') attachSensors(); }).catch(() => {});
   }
+  if (DME && typeof DME.requestPermission === 'function') {
+    DME.requestPermission().then((r) => { if (r === 'granted') attachSensors(); }).catch(() => {});
+  }
+  if (!(DOE && typeof DOE.requestPermission === 'function') && !(DME && typeof DME.requestPermission === 'function')) {
+    attachSensors();
+  }
+}
+
+function attachSensors() {
+  window.addEventListener('devicemotion', onMotion);
+  window.addEventListener('deviceorientation', onOrient);
+}
+
+// Which way the back camera points, in degrees. 'deviceorientation' is gyroscope-based and relative
+// (not true north), which is what we want: the car's metal can't throw it off, and we only need turns.
+function onOrient(e) {
+  if (e.alpha == null || e.beta == null || e.gamma == null) return;
+  const r = Math.PI / 180;
+  const cX = Math.cos(e.beta * r), sX = Math.sin(e.beta * r);
+  const cY = Math.cos(e.gamma * r), sY = Math.sin(e.gamma * r);
+  const cZ = Math.cos(e.alpha * r), sZ = Math.sin(e.alpha * r);
+  const vx = -cZ * sY - sZ * sX * cY; // camera direction (0, 0, -1) turned into the world frame
+  const vy = -sZ * sY + cZ * sX * cY;
+  const len = Math.hypot(vx, vy);
+  if (len < 0.3) return; // pointing at the sky or the ground: no useful direction
+  if (!sensors.headingAvailable) { sensors.hx = vx / len; sensors.hy = vy / len; }
+  sensors.hx += (vx / len - sensors.hx) * 0.3;
+  sensors.hy += (vy / len - sensors.hy) * 0.3;
+  sensors.heading = norm360((Math.atan2(sensors.hx, sensors.hy) * 180) / Math.PI);
+  sensors.headingAvailable = true;
+}
+
+function norm360(a) { return ((a % 360) + 360) % 360; }
+function angDiff(a, b) { return ((a - b + 540) % 360) - 180; } // a minus b, in −180…180
+
+// Where the car "faces" in the phone's turn frame, from the most recent outside photo:
+// standing at ring step k, the camera faced (front direction − 45°·k).
+function carRef(excludeId = null) {
+  let best = null;
+  for (const s of SHOTS) {
+    if (s.kind !== 'exterior' || s.id === excludeId) continue;
+    const c = state.captures[s.id];
+    if (!c || c.heading == null) continue;
+    if (!best || c.at > best.at) best = { at: c.at, ref: norm360(c.heading + 45 * s.ring) };
+  }
+  return best ? best.ref : null;
+}
+
+// Is the person standing at this shot's spot? 'na' until there is a first outside photo to compare with.
+function positionCheck(shot) {
+  if (shot.ring == null || state.sourceKind === 'file' || !sensors.headingAvailable) return { st: 'na' };
+  const ref = carRef(shot.id);
+  if (ref == null) return { st: 'na' };
+  const diff = angDiff(sensors.heading, norm360(ref - 45 * shot.ring));
+  return { st: Math.abs(diff) <= shot.ringTol ? 'ok' : 'bad', diff };
 }
 
 function onMotion(e) {
@@ -481,13 +551,19 @@ function evaluate(shot, box, m, src) {
     wholeCar = !cut.any && fill < 0.8;
   }
 
+  // Standing at the right spot around the car? (phone's turn since the last outside photo)
+  const pos = positionCheck(shot);
+  live.pos = pos;
+  if (shot.ring != null) chips.spot = pos.st;
+
   if (k === 'exterior') {
-    // 3. A car, seen from the right kind of angle
+    // 3. A car, from the right spot, seen from the right kind of angle
     if (!box) {
       chips.car = 'bad';
       chips.frame = 'bad';
       fail('noCar');
     } else {
+      if (pos.st === 'bad') fail('walkTo');
       // The car's on-screen shape only separates clear cases: head-on (narrow) vs side-on (wide).
       // Corners sit in between and overlap both, so for corners we only catch the extremes.
       let viewOk = true;
@@ -529,6 +605,7 @@ function evaluate(shot, box, m, src) {
       chips.level = 'na';
     }
   } else if (k === 'wheel' || k === 'detail') {
+    if (pos.st === 'bad') fail('walkTo');
     // Close up, the car runs off both sides (or top and bottom) of the frame, or isn't recognised at all.
     // A whole car that is big enough to be this car means the person is still standing back.
     const spans = box && ((cut.L && cut.R) || (cut.T && cut.B) || box.w * box.h > 0.8);
@@ -562,7 +639,7 @@ function updateLive(ev, now, dt, shot) {
   if (live.shownInstr !== ev.instr && (now - live.pendingSince >= 220 || live.shownInstr === 'search')) {
     showInstruction(ev.instr);
     if (!ev.ok && now - live.lastSpokeAt > 2600 && (live.lastSpokenKey !== ev.instr || now - live.lastSpokeAt > 6000)) {
-      speak(STR[state.lang].instr[ev.instr]);
+      speak(instrText(ev.instr));
       live.lastSpokeAt = now;
       live.lastSpokenKey = ev.instr;
     }
@@ -590,12 +667,16 @@ function updateLive(ev, now, dt, shot) {
 
   if (now - live.shotStart > ANYWAY_AFTER_MS) el.btnAnyway.hidden = false;
 
+  updateYouDot(shot);
+
   // What the AI sees (for the pitch)
   el.aiPanel.hidden = !state.aiView;
   if (state.aiView) {
     const m = live.m;
     const best = Math.max(1, live.bestLap);
+    const pos = live.pos || { st: 'na' };
     const lines = [
+      `SPOT  ${pos.st === 'na' ? '    –' : ((pos.diff > 0 ? '+' : '') + fmt(pos.diff, 0) + '°').padStart(5)}/${shot.ringTol ?? '–'}  TURN ${sensors.headingAvailable ? fmt(sensors.heading, 0).padStart(4) + '°' : '   –'}`,
       `LIGHT ${fmt(m.mean, 0).padStart(5)}    SHARP ${fmt(m.lapVar, 0).padStart(5)} ${(fmt((m.lapVar / best) * 100, 0) + '%').padStart(4)}`,
       `MOVE  ${fmt(live.motionEma, 1).padStart(5)}/${MOTION_MAX}  GYRO ${sensors.rotAvailable ? fmt(sensors.rot, 0).padStart(4) + '/' + GYRO_MAX : '   –'}`,
       `RATIO ${ev.box ? fmt(ev.ratio, 2).padStart(5) : '    –'}    FILL ${ev.box ? (fmt(ev.fill * 100, 0) + '%').padStart(5) : '    –'}`,
@@ -605,10 +686,15 @@ function updateLive(ev, now, dt, shot) {
   }
 }
 
+function instrText(key) {
+  if (key === 'walkTo') return SHOTS[state.idx].walk[state.lang];
+  return STR[state.lang].instr[key];
+}
+
 function showInstruction(key, force = false) {
   if (!force && live.shownInstr === key) return;
   live.shownInstr = key;
-  el.instructionText.textContent = STR[state.lang].instr[key];
+  el.instructionText.textContent = instrText(key);
   el.instruction.dataset.state = key === 'good' ? 'ok' : key === 'search' || key === 'noCar' ? 'search' : 'bad';
 }
 
@@ -739,6 +825,8 @@ async function capture(verified) {
     verified,
     score: verified && ev && m ? scoreOf(shot, ev, m) : null,
     chips: ev ? { ...ev.chips } : {},
+    // which way the phone faced: the next photos are checked against this
+    heading: sensors.headingAvailable && state.sourceKind !== 'file' ? sensors.heading : null,
     at: new Date(),
   };
   if (state.sourceKind === 'file') el.video.pause();
@@ -819,7 +907,7 @@ el.shutter.addEventListener('click', () => {
   void el.instruction.offsetWidth;
   el.instruction.classList.add('nudge');
   const key = live.shownInstr && live.shownInstr !== 'search' ? live.shownInstr : null;
-  if (key) { speak(STR[state.lang].instr[key]); live.lastSpokeAt = performance.now(); live.lastSpokenKey = key; }
+  if (key) { speak(instrText(key)); live.lastSpokeAt = performance.now(); live.lastSpokenKey = key; }
 });
 el.btnAnyway.addEventListener('click', () => capture(false));
 el.btnSkip.addEventListener('click', () => {
@@ -962,6 +1050,9 @@ function escapeHtml(s) {
 window.kadr = {
   state,
   shots: SHOTS,
+  sensors,
+  attachSensors,
+  carRef: () => carRef(),
   async useImage(url) {
     await loadDetector();
     stopStream();

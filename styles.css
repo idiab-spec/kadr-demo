@@ -256,6 +256,8 @@ h1 { text-wrap: balance; }
 .map .pulse { fill: none; stroke: var(--cam-yellow); stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: pulse 1.6s ease-out infinite; }
 .map .aim { stroke: var(--cam-yellow); stroke-width: 3; stroke-dasharray: 5 5; }
 .map .tick { fill: none; stroke: #000; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.map .you-halo { fill: rgba(10, 132, 255, 0.28); }
+.map .you-core { fill: #0a84ff; stroke: #fff; stroke-width: 2.5; }
 @keyframes pulse { from { transform: scale(1); opacity: 0.9; } to { transform: scale(2.4); opacity: 0; } }
 
 /* Review after each photo: "Retake" / "Use Photo", as on iPhone */
