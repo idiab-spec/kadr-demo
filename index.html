@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0E13">
+<title>Kadr car photo guide</title>
+<meta name="description" content="A live camera guide that helps people take good photos of their car for an insurance claim.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Readex+Pro:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- 1. Start -->
+<section id="screen-start" class="screen start">
+  <header class="bar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+      <span>Kadr</span><span class="brand-ar">كادر</span>
+    </div>
+    <button class="pill-btn js-lang" type="button">العربية</button>
+  </header>
+
+  <div class="start-body">
+    <div class="start-copy">
+      <p class="eyebrow" data-i18n="startEyebrow"></p>
+      <h1 data-i18n="startTitle"></h1>
+      <p class="lede" data-i18n="startLede"></p>
+      <ul class="facts">
+        <li><b>12</b><span data-i18n="factOutside"></span></li>
+        <li><b>3</b><span data-i18n="factInside"></span></li>
+        <li><b>0</b><span data-i18n="factButtons"></span></li>
+      </ul>
+      <div class="start-actions">
+        <button id="btn-start" class="btn primary" type="button"><span data-i18n="start"></span></button>
+        <label class="btn ghost" for="video-file"><span data-i18n="useVideo"></span></label>
+        <input id="video-file" type="file" accept="video/*" hidden>
+      </div>
+      <p class="status" id="start-status" role="status"></p>
+      <p class="fineprint" data-i18n="privacy"></p>
+    </div>
+    <figure class="start-map">
+      <svg id="start-map" class="map" viewBox="0 0 160 200" role="img" aria-label=""></svg>
+      <figcaption data-i18n="mapCaption"></figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 2. Capture -->
+<section id="screen-capture" class="screen capture" hidden>
+  <div class="stage" id="stage">
+    <video id="cam" playsinline muted autoplay></video>
+    <img id="test-img" class="src" alt="" crossorigin="anonymous" hidden>
+    <canvas id="overlay"></canvas>
+    <div class="flash" id="flash"></div>
+
+    <div class="topbar">
+      <button class="icon-btn" id="btn-close" type="button" data-i18n-label="close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <button class="shot-title" id="btn-shotlist" type="button">
+        <span class="shot-count" id="shot-count"></span>
+        <span class="shot-name" id="shot-name"></span>
+        <span class="shot-tip" id="shot-tip"></span>
+        <span class="progress" id="progress" aria-hidden="true"></span>
+      </button>
+      <div class="top-actions">
+        <button class="icon-btn" id="btn-voice" type="button" aria-pressed="true" data-i18n-label="sound">
+          <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+          <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>
+        </button>
+        <button class="icon-btn js-lang lang-mini" type="button">ع</button>
+      </div>
+    </div>
+
+    <div class="hud" id="hud" hidden></div>
+    <p class="hint" id="hint" hidden></p>
+    <div class="instruction" id="instruction" data-state="search" role="status" aria-live="polite">
+      <span id="instruction-text"></span>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <svg class="map mini-map" id="mini-map" viewBox="0 0 160 200" aria-hidden="true"></svg>
+    <ul class="checks" id="checks"></ul>
+    <div class="shutter-wrap">
+      <button class="shutter" id="btn-shutter" type="button">
+        <svg viewBox="0 0 80 80" aria-hidden="true"><circle class="ring-bg" cx="40" cy="40" r="36"/><circle class="ring" id="ring" cx="40" cy="40" r="36"/></svg>
+        <span class="core" id="shutter-label"></span>
+      </button>
+    </div>
+    <div class="panel-actions">
+      <button class="link-btn strong" id="btn-anyway" type="button" hidden data-i18n="takeAnyway"></button>
+      <button class="link-btn" id="btn-skip" type="button" data-i18n="skip"></button>
+      <button class="link-btn" id="btn-torch" type="button" aria-pressed="false" hidden data-i18n="torch"></button>
+      <button class="link-btn" id="btn-aiview" type="button" aria-pressed="false" data-i18n="aiView"></button>
+    </div>
+  </aside>
+
+  <div class="review" id="review" hidden>
+    <img id="review-img" alt="">
+    <div class="review-card">
+      <p class="review-status" id="review-status"></p>
+      <p class="review-score"><span class="review-label" data-i18n="quality"></span> <span id="review-score"></span><small>/100</small></p>
+      <ul class="checks" id="review-checks"></ul>
+      <div class="review-actions">
+        <button class="btn ghost" id="btn-retake" type="button" data-i18n="retake"></button>
+        <button class="btn primary" id="btn-next" type="button"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="shot-sheet" hidden>
+    <div class="sheet-inner">
+      <div class="sheet-head">
+        <h2 data-i18n="allPhotos"></h2>
+        <button class="icon-btn" id="btn-sheet-close" type="button" data-i18n-label="close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <ol id="sheet-list"></ol>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Done -->
+<section id="screen-done" class="screen done" hidden>
+  <header class="bar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+      <span>Kadr</span><span class="brand-ar">كادر</span>
+    </div>
+    <button class="pill-btn js-lang" type="button">العربية</button>
+  </header>
+  <div class="done-head">
+    <p class="eyebrow" data-i18n="doneEyebrow"></p>
+    <h1 id="done-title"></h1>
+    <p class="lede" id="done-sub"></p>
+  </div>
+  <ol class="gallery" id="gallery"></ol>
+  <p class="fineprint" data-i18n="tapToRetake"></p>
+  <h2 data-i18n="receives"></h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th data-i18n="colPhoto"></th><th data-i18n="colTime"></th><th data-i18n="colChecks"></th><th data-i18n="colQuality"></th></tr></thead>
+      <tbody id="report-body"></tbody>
+    </table>
+  </div>
+  <div class="done-actions">
+    <button class="btn primary" id="btn-send" type="button" data-i18n="send"></button>
+    <button class="btn ghost" id="btn-again" type="button" data-i18n="again"></button>
+  </div>
+  <p class="toast" id="toast" role="status" hidden></p>
+</section>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
